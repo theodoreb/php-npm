@@ -5,7 +5,7 @@
             {
                 "action": "\\CaptainHook\\App\\Hook\\Message\\Action\\Regex",
                 "options": {
-                    "regex": "/^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\\([a-z0-9-]+\\))?!?: .{1,72}/"
+                    "regex": "/^(feat|fix|docs|style|refactor|perf|test|build|ci|task|revert)(\\([a-z0-9-]+\\))?!?: .{1,72}/"
                 },
                 "config": {
                     "label": "Conventional Commits"

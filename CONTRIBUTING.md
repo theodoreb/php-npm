@@ -51,7 +51,7 @@ This project uses [Conventional Commits](https://www.conventionalcommits.org/). 
 - `test` - Adding or updating tests
 - `build` - Build system or dependencies
 - `ci` - CI configuration
-- `chore` - Other changes (e.g., tooling)
+- `task` - Other changes (e.g., tooling)
 
 **Examples:**
 ```

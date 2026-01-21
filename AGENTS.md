@@ -106,7 +106,7 @@ An `Edge` represents a dependency relationship. Key properties:
 
 ### Testing
 - Run tests with: `composer test` (if configured)
-- Test with real package.json files (Drupal core is a good test case)
+- Test with real package.json files
 
 ### When Adding Features
 1. First study how npm implements the feature in the reference CLI

@@ -8,8 +8,7 @@
         "package-manager",
         "node-modules",
         "frontend",
-        "dependencies",
-        "drupal"
+        "dependencies"
     ],
     "homepage": "https://github.com/theodoreb/php-npm",
     "authors": [

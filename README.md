@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PHP Version](https://img.shields.io/badge/php-%3E%3D8.1-8892BF.svg)](https://www.php.net/)
 
-A PHP-based npm client that can interact with the npm registry without requiring Node.js/Bun installation. Designed for managing frontend assets on Drupal websites.
+A PHP-based npm client that can interact with the npm registry without requiring Node.js/Bun installation.
 
 ## Features
 

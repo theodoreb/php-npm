@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PhpNpm\Lockfile;
 
 use Symfony\Component\Yaml\Yaml;
+use PhpNpm\Semver\ComposerSemverAdapter;
 
 /**
  * Parser for Yarn Berry (v2+) lockfiles.
@@ -14,6 +15,13 @@ use Symfony\Component\Yaml\Yaml;
  */
 class YarnLockParser
 {
+    private ComposerSemverAdapter $semver;
+
+    public function __construct()
+    {
+        $this->semver = new ComposerSemverAdapter();
+    }
+
     /**
      * Parse a yarn.lock file content into normalized v3 format.
      *
@@ -283,18 +291,43 @@ class YarnLockParser
             return;
         }
 
-        // Find matching package version
+        // Find matching package version that satisfies the range
+        $candidates = [];
         foreach ($packageVersionMap as $key => $data) {
             if ($data['name'] === $effectiveName || $data['name'] === $name) {
-                $queue[] = [
-                    'name' => $name,
-                    'version' => $data['version'],
-                    'parent' => $parentLocation,
-                    'entry' => $data['entry'],
-                ];
-                return;
+                $candidates[] = $data;
             }
         }
+
+        if (empty($candidates)) {
+            return; // No matching package found
+        }
+
+        // Find the best matching version
+        $bestMatch = null;
+        foreach ($candidates as $candidate) {
+            // Check if this version satisfies the range
+            if ($this->semver->satisfies($candidate['version'], $effectiveRange)) {
+                // Prefer higher versions
+                if ($bestMatch === null ||
+                    $this->semver->gt($candidate['version'], $bestMatch['version'])) {
+                    $bestMatch = $candidate;
+                }
+            }
+        }
+
+        // If no version satisfies the range, skip this dependency
+        // (CI should fail if lockfile is incomplete, but parser continues)
+        if ($bestMatch === null) {
+            return;
+        }
+
+        $queue[] = [
+            'name' => $name,
+            'version' => $bestMatch['version'],
+            'parent' => $parentLocation,
+            'entry' => $bestMatch['entry'],
+        ];
     }
 
     /**

@@ -17,14 +17,14 @@ use PhpNpm\Arborist\Arborist;
 class CiCommand extends Command
 {
     protected static $defaultName = 'ci';
-    protected static $defaultDescription = 'Clean install from package-lock.json';
+    protected static $defaultDescription = 'Clean install from lockfile (package-lock.json or yarn.lock)';
 
     protected function configure(): void
     {
         $this
             ->setName('ci')
             ->setAliases(['clean-install'])
-            ->setDescription('Clean install from package-lock.json')
+            ->setDescription('Clean install from lockfile (package-lock.json or yarn.lock)')
             ->addOption(
                 'registry',
                 null,
@@ -32,13 +32,18 @@ class CiCommand extends Command
                 'Registry URL to use'
             )
             ->setHelp(<<<'HELP'
-The <info>ci</info> command performs a clean install from package-lock.json.
+The <info>ci</info> command performs a clean install from a lockfile.
+
+Supported lockfiles (in priority order):
+- npm-shrinkwrap.json
+- package-lock.json
+- yarn.lock (Yarn Berry v2+ format)
 
 This command is similar to <info>install</info>, but:
 - Removes existing node_modules before installing
-- Requires package-lock.json to exist
-- Never writes to package.json or package-lock.json
-- Fails if package-lock.json is outdated
+- Requires a lockfile to exist
+- Never writes to package.json or the lockfile
+- Fails if the lockfile is outdated
 
 This is intended for use in automated environments (CI/CD):
     <info>php-npm ci</info>
@@ -51,10 +56,14 @@ HELP
         $io = new SymfonyStyle($input, $output);
         $path = getcwd();
 
-        // Check for lockfile
-        if (!file_exists($path . '/package-lock.json') && !file_exists($path . '/npm-shrinkwrap.json')) {
-            $io->error('This command requires a package-lock.json or npm-shrinkwrap.json file.');
-            $io->text('Run "php-npm install" first to generate one.');
+        // Check for lockfile (npm-shrinkwrap.json, package-lock.json, or yarn.lock)
+        $hasLockfile = file_exists($path . '/npm-shrinkwrap.json')
+            || file_exists($path . '/package-lock.json')
+            || file_exists($path . '/yarn.lock');
+
+        if (!$hasLockfile) {
+            $io->error('This command requires a lockfile (package-lock.json, npm-shrinkwrap.json, or yarn.lock).');
+            $io->text('Run "php-npm install" first to generate one, or use an existing yarn.lock.');
             return Command::FAILURE;
         }
 

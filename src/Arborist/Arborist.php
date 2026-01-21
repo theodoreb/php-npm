@@ -166,7 +166,7 @@ class Arborist
     {
         if (!$this->shrinkwrap->exists()) {
             throw new \RuntimeException(
-                "Cannot perform clean install: no package-lock.json found"
+                "Cannot perform clean install: no lockfile found (package-lock.json, npm-shrinkwrap.json, or yarn.lock)"
             );
         }
 

@@ -61,30 +61,24 @@ class CanPlaceDep
 
     /**
      * Check that placing here doesn't conflict with anything.
+     *
+     * Note: We only check descendants for conflicts, not ancestors.
+     * Ancestors will resolve to their own copies first (shadowing).
      */
     private function checkNoConflict(Node $target, Node $dep, Edge $edge): PlacementResult
     {
         $name = $dep->getName();
 
-        // Check if any dependent in the tree would be broken
-        // Walk up from target to check for conflicts
-        $check = $target;
-        while ($check !== null) {
-            // Check edges from this node
-            foreach ($check->getEdgesOut() as $outEdge) {
-                if ($outEdge->getName() === $name) {
-                    // This node also depends on the same package
-                    if (!$this->semver->satisfies($dep->getVersion(), $outEdge->getSpec())) {
-                        // New version doesn't satisfy existing edge
-                        return new PlacementResult(self::CONFLICT, null, $outEdge);
-                    }
-                }
+        // Check if target itself has an edge for this package
+        $targetEdge = $target->getEdgeOut($name);
+        if ($targetEdge !== null) {
+            if (!$this->semver->satisfies($dep->getVersion(), $targetEdge->getRawSpec())) {
+                // New version doesn't satisfy target's own edge
+                return new PlacementResult(self::CONFLICT, null, $targetEdge);
             }
-
-            $check = $check->getParent();
         }
 
-        // Check children of target for conflicts
+        // Check children of target for conflicts (descendants who would resolve to this)
         $conflicts = $this->checkChildConflicts($target, $dep);
         if ($conflicts !== null) {
             return new PlacementResult(self::CONFLICT, null, $conflicts);

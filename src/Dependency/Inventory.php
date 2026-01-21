@@ -27,6 +27,11 @@ class Inventory implements Countable, IteratorAggregate
     {
         $location = $node->getLocation() ?: $node->getRealpath();
 
+        // Use object ID as fallback when no location is set (for tests/virtual nodes)
+        if ($location === '') {
+            $location = '__node_' . spl_object_id($node);
+        }
+
         // Add to primary index
         $this->byLocation[$location] = $node;
 
@@ -45,6 +50,11 @@ class Inventory implements Countable, IteratorAggregate
     public function delete(Node $node): void
     {
         $location = $node->getLocation() ?: $node->getRealpath();
+
+        // Use object ID as fallback when no location is set
+        if ($location === '') {
+            $location = '__node_' . spl_object_id($node);
+        }
 
         // Remove from primary index
         unset($this->byLocation[$location]);
@@ -68,6 +78,12 @@ class Inventory implements Countable, IteratorAggregate
     public function has(Node $node): bool
     {
         $location = $node->getLocation() ?: $node->getRealpath();
+
+        // Use object ID as fallback when no location is set
+        if ($location === '') {
+            $location = '__node_' . spl_object_id($node);
+        }
+
         return isset($this->byLocation[$location]);
     }
 
@@ -105,7 +121,7 @@ class Inventory implements Countable, IteratorAggregate
             return $nodes;
         }
 
-        return array_filter($nodes, fn(Node $node) => $node->satisfies($spec));
+        return array_values(array_filter($nodes, fn(Node $node) => $node->satisfies($spec)));
     }
 
     /**

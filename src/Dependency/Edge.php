@@ -152,12 +152,24 @@ class Edge
      */
     public function reload(): void
     {
+        // Remove from old target's edgesIn
+        if ($this->to !== null) {
+            $this->to->removeEdgeIn($this);
+        }
+
         $resolved = $this->from->resolve($this->name);
         $this->to = $resolved;
 
         if ($resolved === null) {
             $this->valid = $this->isOptional();
             $this->error = $this->isOptional() ? null : 'MISSING';
+        } else {
+            // Check if resolved node satisfies the version constraint
+            $this->valid = $resolved->satisfies($this->rawSpec);
+            $this->error = $this->valid ? null : 'INVALID';
+
+            // Register this edge in the resolved node's edgesIn
+            $resolved->addEdgeIn($this);
         }
     }
 

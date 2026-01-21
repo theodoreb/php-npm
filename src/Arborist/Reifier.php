@@ -66,6 +66,12 @@ class Reifier
         $toAdd = $diff['add'] ?? [];
         $toUpdate = $diff['update'] ?? [];
 
+        // Extract nodes to install from updates
+        $nodesToInstall = array_merge(
+            $toAdd,
+            array_map(fn($u) => $u['to'], $toUpdate)
+        );
+
         $this->total = count($toRemove) + count($toAdd) + count($toUpdate);
         $this->processed = 0;
 
@@ -76,27 +82,99 @@ class Reifier
             $this->processed++;
         }
 
-        // Phase 2: Install new packages
-        foreach ($toAdd as $node) {
-            $this->progress("Installing {$node->getName()}@{$node->getVersion()}");
-            $this->installPackage($node);
-            $this->processed++;
-        }
-
-        // Phase 3: Update packages
+        // Phase 1b: Remove old versions for updates
         foreach ($toUpdate as $update) {
             $from = $update['from'];
-            $to = $update['to'];
-            $this->progress("Updating {$to->getName()} {$from->getVersion()} -> {$to->getVersion()}");
             $this->removePackage($from);
-            $this->installPackage($to);
-            $this->processed++;
+        }
+
+        // Phase 2: Download all tarballs in parallel
+        if (!empty($nodesToInstall)) {
+            $this->progress("Downloading " . count($nodesToInstall) . " packages in parallel...");
+            $tarballs = $this->downloadTarballsParallel($nodesToInstall);
+
+            // Phase 3: Install packages (write to disk + verify)
+            foreach ($nodesToInstall as $node) {
+                $nodeId = $this->getNodeId($node);
+                $this->progress("Installing {$node->getName()}@{$node->getVersion()}");
+
+                if (!isset($tarballs[$nodeId])) {
+                    throw new \RuntimeException(
+                        "Missing tarball for {$node->getName()}@{$node->getVersion()}"
+                    );
+                }
+
+                $this->installPackageFromTarball($node, $tarballs[$nodeId]);
+                $this->processed++;
+            }
         }
 
         // Phase 4: Create bin links
         $this->createAllBinLinks($idealTree);
 
         $this->progress("Done");
+    }
+
+    /**
+     * Download tarballs for multiple nodes in parallel.
+     *
+     * @param Node[] $nodes Nodes to download
+     * @return array<string, string> Map of node ID to tarball content
+     */
+    private function downloadTarballsParallel(array $nodes): array
+    {
+        $urlMap = [];
+
+        foreach ($nodes as $node) {
+            $resolved = $node->getResolved();
+
+            // Get tarball URL if not set
+            if ($resolved === null) {
+                $resolved = $this->pacote->tarball($node->getName(), $node->getVersion());
+            }
+
+            $nodeId = $this->getNodeId($node);
+            $urlMap[$nodeId] = $resolved;
+        }
+
+        // Fetch all tarballs in parallel
+        return $this->pacote->getClient()->fetchTarballsParallel($urlMap);
+    }
+
+    /**
+     * Get unique identifier for a node.
+     */
+    private function getNodeId(Node $node): string
+    {
+        return $node->getName() . '@' . $node->getVersion() . '@' . $node->getLocation();
+    }
+
+    /**
+     * Install a package from already-downloaded tarball content.
+     */
+    private function installPackageFromTarball(Node $node, string $tarballContent): void
+    {
+        $name = $node->getName();
+        $version = $node->getVersion();
+        $integrity = $node->getIntegrity();
+
+        // Verify integrity if available
+        if ($integrity !== null) {
+            try {
+                $this->integrity->verifyOrThrow(
+                    $tarballContent,
+                    $integrity,
+                    "{$name}@{$version}"
+                );
+            } catch (IntegrityException $e) {
+                throw new \RuntimeException(
+                    "Integrity check failed for {$name}@{$version}: " . $e->getMessage()
+                );
+            }
+        }
+
+        // Write to disk
+        $this->writer->writeNode($node, $tarballContent);
     }
 
     /**

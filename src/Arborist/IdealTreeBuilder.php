@@ -78,8 +78,12 @@ class IdealTreeBuilder
         // Count total deps to resolve
         $this->totalToResolve = $this->queue->count();
 
-        // Process the queue
+        // Process the queue in batches with parallel packument fetching
         while (!$this->queue->isEmpty()) {
+            // Prefetch packuments for current batch
+            $this->prefetchPackuments();
+
+            // Process one entry (may add more to queue)
             $entry = $this->queue->pop();
             $this->processQueueEntry($entry);
         }
@@ -219,6 +223,40 @@ class IdealTreeBuilder
                     $this->queue->push($node, $edge, $depth);
                 }
             }
+        }
+    }
+
+    /**
+     * Prefetch packuments for all packages in the current queue.
+     * This fetches them in parallel to speed up resolution.
+     */
+    private function prefetchPackuments(): void
+    {
+        // Collect unique package names from queue that we haven't fetched yet
+        $toFetch = [];
+        foreach ($this->queue->getPending() as $entry) {
+            $registryName = $entry->edge->getRegistryName();
+            if (!isset($this->packuments[$registryName]) && !in_array($registryName, $toFetch, true)) {
+                $toFetch[] = $registryName;
+            }
+        }
+
+        if (empty($toFetch)) {
+            return;
+        }
+
+        $this->progress("Prefetching " . count($toFetch) . " packuments in parallel...");
+
+        // Fetch all in parallel
+        try {
+            $fetched = $this->pacote->packumentsParallel($toFetch);
+
+            // Merge into local cache
+            foreach ($fetched as $name => $packument) {
+                $this->packuments[$name] = $packument;
+            }
+        } catch (\Exception $e) {
+            // Continue even if parallel fetch fails - will fall back to sequential
         }
     }
 

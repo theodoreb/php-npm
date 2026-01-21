@@ -225,4 +225,104 @@ class Pacote
     {
         return $this->client;
     }
+
+    /**
+     * Resolve multiple packages in parallel.
+     *
+     * @param array<string, string> $specs Map of package name to version spec
+     * @param int $concurrency Maximum concurrent requests (default: 10)
+     * @return array<string, array{name: string, version: string, manifest: array}> Resolved packages
+     */
+    public function resolveParallel(array $specs, int $concurrency = 10): array
+    {
+        // Fetch all packuments in parallel
+        $names = array_keys($specs);
+        $packuments = $this->client->fetchPackumentsParallel($names, $concurrency);
+
+        // Resolve versions from packuments
+        $results = [];
+        foreach ($specs as $name => $spec) {
+            if (!isset($packuments[$name])) {
+                continue; // Skip if packument fetch failed
+            }
+
+            $packument = $packuments[$name];
+            $version = $this->resolveVersion($packument, $spec);
+
+            if ($version !== null) {
+                $results[$name] = [
+                    'name' => $name,
+                    'version' => $version,
+                    'manifest' => $packument['versions'][$version] ?? [],
+                ];
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Fetch multiple packuments in parallel.
+     *
+     * @param string[] $names Package names
+     * @param int $concurrency Maximum concurrent requests (default: 10)
+     * @return array<string, array> Map of name to packument
+     */
+    public function packumentsParallel(array $names, int $concurrency = 10): array
+    {
+        return $this->client->fetchPackumentsParallel($names, $concurrency);
+    }
+
+    /**
+     * Extract lock data for multiple packages in parallel.
+     *
+     * @param array<string, string> $specs Map of package name to version spec
+     * @param int $concurrency Maximum concurrent requests (default: 10)
+     * @return array<string, array> Map of name to lock data
+     */
+    public function extractLockDataParallel(array $specs, int $concurrency = 10): array
+    {
+        $resolved = $this->resolveParallel($specs, $concurrency);
+
+        $results = [];
+        foreach ($resolved as $name => $data) {
+            $manifest = $data['manifest'];
+
+            $lockData = [
+                'version' => $data['version'],
+            ];
+
+            if (isset($manifest['dist']['tarball'])) {
+                $lockData['resolved'] = $manifest['dist']['tarball'];
+            }
+
+            if (isset($manifest['dist']['integrity'])) {
+                $lockData['integrity'] = $manifest['dist']['integrity'];
+            }
+
+            if (!empty($manifest['dependencies'])) {
+                $lockData['dependencies'] = $manifest['dependencies'];
+            }
+
+            if (!empty($manifest['optionalDependencies'])) {
+                $lockData['optionalDependencies'] = $manifest['optionalDependencies'];
+            }
+
+            if (!empty($manifest['peerDependencies'])) {
+                $lockData['peerDependencies'] = $manifest['peerDependencies'];
+            }
+
+            if (!empty($manifest['peerDependenciesMeta'])) {
+                $lockData['peerDependenciesMeta'] = $manifest['peerDependenciesMeta'];
+            }
+
+            if (!empty($manifest['engines'])) {
+                $lockData['engines'] = $manifest['engines'];
+            }
+
+            $results[$name] = $lockData;
+        }
+
+        return $results;
+    }
 }

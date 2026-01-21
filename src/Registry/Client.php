@@ -7,6 +7,10 @@ namespace PhpNpm\Registry;
 use GuzzleHttp\Client as HttpClient;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\RequestOptions;
+use GuzzleHttp\Pool;
+use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Psr7\Response;
+use Psr\Http\Message\ResponseInterface;
 
 /**
  * HTTP client for interacting with the npm registry.
@@ -249,6 +253,189 @@ class Client
     public function clearCache(): void
     {
         $this->cache->clear();
+    }
+
+    /**
+     * Fetch multiple packuments in parallel.
+     *
+     * @param string[] $names Package names to fetch
+     * @param int $concurrency Maximum concurrent requests (default: 10)
+     * @return array<string, array> Map of package name to packument
+     * @throws RegistryException
+     */
+    public function fetchPackumentsParallel(array $names, int $concurrency = 10): array
+    {
+        $results = [];
+        $errors = [];
+
+        // Filter out cached packages
+        $toFetch = [];
+        foreach ($names as $name) {
+            $cached = $this->cache->get($name);
+            if ($cached !== null) {
+                $results[$name] = $cached;
+            } else {
+                $toFetch[] = $name;
+            }
+        }
+
+        if (empty($toFetch)) {
+            return $results;
+        }
+
+        // Create request generator
+        $requests = function () use ($toFetch) {
+            foreach ($toFetch as $name) {
+                $url = $this->getPackumentUrl($name);
+                yield $name => new Request('GET', $url, [
+                    'Accept' => self::ACCEPT_HEADER,
+                    'User-Agent' => 'php-npm/1.0.0',
+                ]);
+            }
+        };
+
+        // Execute requests in parallel using Pool
+        $pool = new Pool($this->http, $requests(), [
+            'concurrency' => $concurrency,
+            'fulfilled' => function (ResponseInterface $response, $name) use (&$results) {
+                $body = $response->getBody()->getContents();
+                $packument = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+
+                if (is_array($packument)) {
+                    $this->cache->set($name, $packument);
+                    $results[$name] = $packument;
+                }
+            },
+            'rejected' => function ($reason, $name) use (&$errors) {
+                $errors[$name] = $reason instanceof \Exception
+                    ? $reason->getMessage()
+                    : (string) $reason;
+            },
+        ]);
+
+        // Wait for all requests to complete
+        $pool->promise()->wait();
+
+        // Report errors but don't fail entirely (some packages may be optional)
+        if (!empty($errors) && count($errors) === count($toFetch)) {
+            throw new RegistryException(
+                "Failed to fetch all packuments: " . implode(', ', array_keys($errors))
+            );
+        }
+
+        return $results;
+    }
+
+    /**
+     * Fetch multiple tarballs in parallel.
+     *
+     * @param array<string, string> $urlMap Map of identifier to tarball URL
+     * @param int $concurrency Maximum concurrent requests (default: 5)
+     * @return array<string, string> Map of identifier to tarball content
+     * @throws RegistryException
+     */
+    public function fetchTarballsParallel(array $urlMap, int $concurrency = 5): array
+    {
+        $results = [];
+        $errors = [];
+
+        if (empty($urlMap)) {
+            return $results;
+        }
+
+        // Create request generator
+        $requests = function () use ($urlMap) {
+            foreach ($urlMap as $id => $url) {
+                yield $id => new Request('GET', $url, [
+                    'User-Agent' => 'php-npm/1.0.0',
+                ]);
+            }
+        };
+
+        // Execute requests in parallel using Pool
+        $pool = new Pool($this->http, $requests(), [
+            'concurrency' => $concurrency,
+            'fulfilled' => function (ResponseInterface $response, $id) use (&$results) {
+                $results[$id] = $response->getBody()->getContents();
+            },
+            'rejected' => function ($reason, $id) use (&$errors) {
+                $errors[$id] = $reason instanceof \Exception
+                    ? $reason->getMessage()
+                    : (string) $reason;
+            },
+        ]);
+
+        // Wait for all requests to complete
+        $pool->promise()->wait();
+
+        if (!empty($errors)) {
+            throw new RegistryException(
+                "Failed to fetch tarballs: " . implode(', ', array_keys($errors))
+            );
+        }
+
+        return $results;
+    }
+
+    /**
+     * Download multiple tarballs to files in parallel.
+     *
+     * @param array<string, array{url: string, destination: string}> $downloads Map of id to download info
+     * @param int $concurrency Maximum concurrent requests (default: 5)
+     * @return array<string, bool> Map of identifier to success status
+     */
+    public function downloadTarballsParallel(array $downloads, int $concurrency = 5): array
+    {
+        $results = [];
+        $errors = [];
+
+        if (empty($downloads)) {
+            return $results;
+        }
+
+        // Create request generator with sink option
+        $requests = function () use ($downloads) {
+            foreach ($downloads as $id => $info) {
+                yield $id => function () use ($info) {
+                    return $this->http->getAsync($info['url'], [
+                        RequestOptions::SINK => $info['destination'],
+                        RequestOptions::HTTP_ERRORS => true,
+                    ]);
+                };
+            }
+        };
+
+        // Execute requests in parallel using Pool
+        $pool = new Pool($this->http, $requests(), [
+            'concurrency' => $concurrency,
+            'fulfilled' => function ($response, $id) use (&$results) {
+                $results[$id] = true;
+            },
+            'rejected' => function ($reason, $id) use (&$errors) {
+                $errors[$id] = $reason instanceof \Exception
+                    ? $reason->getMessage()
+                    : (string) $reason;
+            },
+        ]);
+
+        // Wait for all requests to complete
+        $pool->promise()->wait();
+
+        if (!empty($errors)) {
+            throw new RegistryException(
+                "Failed to download tarballs: " . implode(', ', array_keys($errors))
+            );
+        }
+
+        return $results;
+    }
+
+    /**
+     * Get the underlying HTTP client.
+     */
+    public function getHttpClient(): HttpClient
+    {
+        return $this->http;
     }
 }
 

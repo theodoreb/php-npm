@@ -24,7 +24,7 @@ A PHP-based npm client that can interact with the npm registry without requiring
 ## Installation
 
 ```bash
-composer require php-npm/php-npm
+composer require theodoreb/php-npm
 ```
 
 Or clone and install dependencies:

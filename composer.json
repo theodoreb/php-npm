@@ -1,8 +1,27 @@
 {
-    "name": "php-npm/php-npm",
+    "name": "theodoreb/php-npm",
     "description": "A PHP-based npm client for managing frontend assets without requiring Node.js",
     "type": "library",
     "license": "MIT",
+    "keywords": [
+        "npm",
+        "package-manager",
+        "node-modules",
+        "frontend",
+        "dependencies",
+        "drupal"
+    ],
+    "homepage": "https://github.com/theodoreb/php-npm",
+    "authors": [
+        {
+            "name": "Théodore BIADALA",
+            "homepage": "https://github.com/theodoreb"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/theodoreb/php-npm/issues",
+        "source": "https://github.com/theodoreb/php-npm"
+    },
     "autoload": {
         "psr-4": {
             "PhpNpm\\": "src/"

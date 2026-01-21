@@ -57,6 +57,13 @@ class Node
     private ?string $integrity = null;
 
     /**
+     * Yarn-specific metadata preserved for roundtrip.
+     * Contains fields like 'checksum', 'resolution', 'descriptors'.
+     * @var array<string, mixed>|null
+     */
+    private ?array $yarnMetadata = null;
+
+    /**
      * The actual package name from the registry (different from $name for aliases).
      * When a package is aliased (e.g., "string-width-cjs": "npm:string-width@^4.2.0"),
      * $name is "string-width-cjs" (folder name) and $registryName is "string-width".
@@ -131,6 +138,11 @@ class Node
         // Set registry name if this is an alias (name field differs from folder name)
         if ($packageName !== $name) {
             $node->registryName = $packageName;
+        }
+
+        // Preserve yarn metadata for roundtrip
+        if (isset($entry['_yarn'])) {
+            $node->yarnMetadata = $entry['_yarn'];
         }
 
         return $node;
@@ -551,6 +563,34 @@ class Node
     }
 
     /**
+     * Get yarn-specific metadata for roundtrip preservation.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getYarnMetadata(): ?array
+    {
+        return $this->yarnMetadata;
+    }
+
+    /**
+     * Set yarn-specific metadata.
+     *
+     * @param array<string, mixed>|null $metadata
+     */
+    public function setYarnMetadata(?array $metadata): void
+    {
+        $this->yarnMetadata = $metadata;
+    }
+
+    /**
+     * Check if this node has yarn metadata.
+     */
+    public function hasYarnMetadata(): bool
+    {
+        return $this->yarnMetadata !== null && !empty($this->yarnMetadata);
+    }
+
+    /**
      * Get the effective package name (registry name if set, otherwise name).
      */
     public function getPackageName(): string
@@ -686,6 +726,11 @@ class Node
 
         if (!empty($this->peerDependencies)) {
             $entry['peerDependencies'] = $this->peerDependencies;
+        }
+
+        // Include yarn metadata for roundtrip preservation
+        if ($this->yarnMetadata !== null) {
+            $entry['_yarn'] = $this->yarnMetadata;
         }
 
         return $entry;

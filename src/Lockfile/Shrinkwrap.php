@@ -15,39 +15,69 @@ class Shrinkwrap
 {
     private const LOCKFILE_NAME = 'package-lock.json';
     private const SHRINKWRAP_NAME = 'npm-shrinkwrap.json';
+    private const YARN_LOCKFILE_NAME = 'yarn.lock';
+
+    public const FORMAT_NPM = 'npm';
+    public const FORMAT_YARN = 'yarn';
 
     private LockfileParser $parser;
+    private YarnLockParser $yarnParser;
     private string $path;
     private ?string $lockfilePath = null;
     private array $data = [];
     private bool $loaded = false;
 
+    /** @var string The format of the loaded lockfile (npm or yarn) */
+    private string $format = self::FORMAT_NPM;
+
     public function __construct(string $path)
     {
         $this->path = rtrim($path, '/');
         $this->parser = new LockfileParser();
+        $this->yarnParser = new YarnLockParser();
     }
 
     /**
      * Load lockfile from disk.
+     *
+     * Priority: npm-shrinkwrap.json > package-lock.json > yarn.lock
      */
     public function load(): bool
     {
-        // Try shrinkwrap first, then package-lock
+        // Try shrinkwrap first, then package-lock, then yarn.lock
         $shrinkwrap = $this->path . '/' . self::SHRINKWRAP_NAME;
         $lockfile = $this->path . '/' . self::LOCKFILE_NAME;
+        $yarnLock = $this->path . '/' . self::YARN_LOCKFILE_NAME;
 
         if (file_exists($shrinkwrap)) {
             $this->lockfilePath = $shrinkwrap;
+            $this->format = self::FORMAT_NPM;
         } elseif (file_exists($lockfile)) {
             $this->lockfilePath = $lockfile;
+            $this->format = self::FORMAT_NPM;
+        } elseif (file_exists($yarnLock)) {
+            $this->lockfilePath = $yarnLock;
+            $this->format = self::FORMAT_YARN;
         } else {
             $this->lockfilePath = $lockfile;
+            $this->format = self::FORMAT_NPM;
             $this->data = $this->createEmpty();
             $this->loaded = true;
             return false;
         }
 
+        if ($this->format === self::FORMAT_YARN) {
+            return $this->loadYarnLock();
+        }
+
+        return $this->loadNpmLock();
+    }
+
+    /**
+     * Load npm-style lockfile (package-lock.json or npm-shrinkwrap.json).
+     */
+    private function loadNpmLock(): bool
+    {
         try {
             $content = file_get_contents($this->lockfilePath);
             $raw = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
@@ -59,6 +89,34 @@ class Shrinkwrap
                 "Failed to parse lockfile: " . $e->getMessage()
             );
         }
+    }
+
+    /**
+     * Load yarn.lock file.
+     */
+    private function loadYarnLock(): bool
+    {
+        $content = file_get_contents($this->lockfilePath);
+
+        // Also load package.json for root dependencies info
+        $packageJsonPath = $this->path . '/package.json';
+        $packageJson = [];
+        if (file_exists($packageJsonPath)) {
+            try {
+                $packageJson = json_decode(
+                    file_get_contents($packageJsonPath),
+                    true,
+                    512,
+                    JSON_THROW_ON_ERROR
+                );
+            } catch (\JsonException $e) {
+                // Continue without package.json
+            }
+        }
+
+        $this->data = $this->yarnParser->parse($content, $packageJson);
+        $this->loaded = true;
+        return true;
     }
 
     /**
@@ -85,7 +143,26 @@ class Shrinkwrap
     public function exists(): bool
     {
         return file_exists($this->path . '/' . self::SHRINKWRAP_NAME)
-            || file_exists($this->path . '/' . self::LOCKFILE_NAME);
+            || file_exists($this->path . '/' . self::LOCKFILE_NAME)
+            || file_exists($this->path . '/' . self::YARN_LOCKFILE_NAME);
+    }
+
+    /**
+     * Get the detected lockfile format.
+     *
+     * @return string One of FORMAT_NPM or FORMAT_YARN
+     */
+    public function getFormat(): string
+    {
+        return $this->format;
+    }
+
+    /**
+     * Check if this lockfile was loaded from a yarn.lock.
+     */
+    public function isYarnFormat(): bool
+    {
+        return $this->format === self::FORMAT_YARN;
     }
 
     /**
@@ -218,12 +295,35 @@ class Shrinkwrap
 
     /**
      * Save lockfile to disk.
+     *
+     * @param int $version Lockfile version (for npm format)
+     * @param string|null $format Force output format (null = use original format)
      */
-    public function save(int $version = 3): void
+    public function save(int $version = 3, ?string $format = null): void
+    {
+        $outputFormat = $format ?? $this->format;
+
+        if ($outputFormat === self::FORMAT_YARN) {
+            $this->saveYarnLock();
+            return;
+        }
+
+        $this->saveNpmLock($version);
+    }
+
+    /**
+     * Save as npm-style lockfile.
+     */
+    private function saveNpmLock(int $version): void
     {
         $output = $this->parser->serialize($this->data, $version);
 
         $path = $this->lockfilePath ?? ($this->path . '/' . self::LOCKFILE_NAME);
+
+        // If original was yarn.lock but saving as npm, use package-lock.json
+        if ($this->format === self::FORMAT_YARN) {
+            $path = $this->path . '/' . self::LOCKFILE_NAME;
+        }
 
         $json = json_encode(
             $output,
@@ -239,6 +339,25 @@ class Shrinkwrap
 
         if (file_put_contents($path, $json) === false) {
             throw new LockfileException("Failed to write lockfile to {$path}");
+        }
+    }
+
+    /**
+     * Save as yarn.lock file.
+     */
+    private function saveYarnLock(): void
+    {
+        $path = $this->lockfilePath ?? ($this->path . '/' . self::YARN_LOCKFILE_NAME);
+
+        // If original was npm but saving as yarn, use yarn.lock
+        if ($this->format === self::FORMAT_NPM) {
+            $path = $this->path . '/' . self::YARN_LOCKFILE_NAME;
+        }
+
+        $content = $this->yarnParser->serialize($this->data, $this->data);
+
+        if (file_put_contents($path, $content) === false) {
+            throw new LockfileException("Failed to write yarn.lock to {$path}");
         }
     }
 

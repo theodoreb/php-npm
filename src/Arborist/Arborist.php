@@ -114,8 +114,11 @@ class Arborist
 
     /**
      * Reify the ideal tree (install to disk).
+     *
+     * @param array $options Reification options
+     * @param array|null $diff Pre-calculated diff (optional, will be calculated if not provided)
      */
-    public function reify(array $options = []): void
+    public function reify(array $options = [], ?array $diff = null): void
     {
         if ($this->idealTree === null) {
             throw new \RuntimeException("Must build ideal tree before reifying");
@@ -128,9 +131,8 @@ class Arborist
             }
         }
 
-        // Calculate diff if we have actual tree
-        $diff = null;
-        if ($this->actualTree !== null) {
+        // Calculate diff if not provided and we have actual tree
+        if ($diff === null && $this->actualTree !== null) {
             $diff = $this->idealTreeBuilder->calculateDiff(
                 $this->actualTree,
                 $this->idealTree
@@ -170,13 +172,6 @@ class Arborist
             );
         }
 
-        // Remove existing node_modules
-        $nodeModules = $this->path . '/node_modules';
-        if (is_dir($nodeModules)) {
-            $this->progress("Removing node_modules...");
-            $this->removeDirectory($nodeModules);
-        }
-
         // Load from lockfile only, no resolution
         $packageJson = $this->loadPackageJson();
         $root = Node::createRoot($this->path, $packageJson);
@@ -187,8 +182,97 @@ class Arborist
         // Verify lockfile matches package.json
         $this->verifyLockfileMatchesPackageJson($root, $packageJson);
 
+        // Load actual tree to calculate diff (skip re-downloading existing packages)
+        $this->loadActual();
+
+        // Calculate diff between actual and ideal (from lockfile)
+        $diff = $this->calculateCiDiff($root);
+
         $this->idealTree = $root;
-        $this->reify($options);
+        $this->reify($options, $diff);
+    }
+
+    /**
+     * Calculate diff for CI install.
+     * Removes packages not in lockfile, adds/updates packages that differ.
+     *
+     * @return array{add: Node[], remove: Node[], update: array}
+     */
+    private function calculateCiDiff(Node $idealTree): array
+    {
+        $add = [];
+        $remove = [];
+        $update = [];
+
+        // Build inventory of ideal packages (from lockfile)
+        $idealPackages = [];
+        $this->collectIdealPackages($idealTree, $idealPackages);
+
+        // Build inventory of actual packages (from node_modules)
+        $actualPackages = [];
+        if ($this->actualTree !== null) {
+            $this->collectActualPackages($this->actualTree, $actualPackages);
+        }
+
+        // Find packages to add or update
+        foreach ($idealPackages as $location => $idealNode) {
+            if (!isset($actualPackages[$location])) {
+                // Package missing - add it
+                $add[] = $idealNode;
+            } elseif ($actualPackages[$location]['version'] !== $idealNode->getVersion()) {
+                // Version mismatch - update it
+                $update[] = [
+                    'location' => $location,
+                    'from' => $actualPackages[$location]['node'],
+                    'to' => $idealNode,
+                ];
+            }
+            // else: same version already installed, skip
+        }
+
+        // Find packages to remove (in node_modules but not in lockfile)
+        foreach ($actualPackages as $location => $actual) {
+            if (!isset($idealPackages[$location])) {
+                $remove[] = $actual['node'];
+            }
+        }
+
+        return [
+            'add' => $add,
+            'remove' => $remove,
+            'update' => $update,
+        ];
+    }
+
+    /**
+     * Collect ideal packages from tree into location map.
+     */
+    private function collectIdealPackages(Node $node, array &$packages): void
+    {
+        foreach ($node->getChildren() as $child) {
+            $location = $child->getLocation();
+            if ($location !== '') {
+                $packages[$location] = $child;
+            }
+            $this->collectIdealPackages($child, $packages);
+        }
+    }
+
+    /**
+     * Collect actual packages from tree into location map.
+     */
+    private function collectActualPackages(Node $node, array &$packages): void
+    {
+        foreach ($node->getChildren() as $child) {
+            $location = $child->getLocation();
+            if ($location !== '') {
+                $packages[$location] = [
+                    'node' => $child,
+                    'version' => $child->getVersion(),
+                ];
+            }
+            $this->collectActualPackages($child, $packages);
+        }
     }
 
     /**

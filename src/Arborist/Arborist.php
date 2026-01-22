@@ -142,8 +142,10 @@ class Arborist
         // Perform reification
         $this->reifier->reify($this->idealTree, $diff, $options);
 
-        // Save lockfile
-        $this->shrinkwrap->save();
+        // Save lockfile (unless this is a CI install which should be read-only)
+        if (empty($options['ci'])) {
+            $this->shrinkwrap->save();
+        }
 
         // Save updated package.json if modified
         if (!empty($options['save'])) {
@@ -189,6 +191,9 @@ class Arborist
         $diff = $this->calculateCiDiff($root);
 
         $this->idealTree = $root;
+
+        // CI should never modify the lockfile
+        $options['ci'] = true;
         $this->reify($options, $diff);
     }
 

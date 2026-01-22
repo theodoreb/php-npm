@@ -5,6 +5,8 @@
 
 A PHP-based npm client that can interact with the npm registry without requiring Node.js/Bun installation.
 
+**Disclaimer:** This project has been created by prompting a Large Language Model (LLM) to generate PHP code from the npm CLI. The code has barely been reviewed.
+
 ## Features
 
 - Full recursive dependency resolution with deduplication

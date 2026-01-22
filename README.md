@@ -12,7 +12,8 @@ A PHP-based npm client that can interact with the npm registry without requiring
 - Full recursive dependency resolution with deduplication
 - Standard `node_modules/` structure
 - Both PHP library and CLI interface
-- npm `package-lock.json` compatibility (v1/v2/v3)
+- Lockfile support: `package-lock.json` (v1/v2/v3), `npm-shrinkwrap.json`, and `yarn.lock` (Yarn Berry v2+)
+- Parallel fetching for packuments and tarballs
 - SRI (sha512) integrity verification
 - Semver range matching using composer/semver
 
@@ -154,8 +155,9 @@ The library is modeled after npm's `@npmcli/arborist` package:
 
 ### Lockfile
 
-- **Shrinkwrap** - package-lock.json handler
-- **LockfileParser** - Parse v1/v2/v3 formats
+- **Shrinkwrap** - Lockfile handler (package-lock.json, npm-shrinkwrap.json, yarn.lock)
+- **LockfileParser** - Parse npm lockfile v1/v2/v3 formats
+- **YarnLockParser** - Parse Yarn Berry (v2+) lockfiles
 
 ### File System
 
@@ -165,13 +167,23 @@ The library is modeled after npm's `@npmcli/arborist` package:
 
 ## Lockfile Compatibility
 
-The library supports all npm lockfile versions:
+The library supports multiple lockfile formats:
+
+### npm lockfiles
 
 - **v1** - Nested `dependencies` structure (npm 5-6)
 - **v2** - Hybrid format with both `packages` and `dependencies` (npm 7-8)
 - **v3** - Flat `packages` only (npm 9+)
 
-Lockfiles are internally normalized to v3 format and written as v3 by default.
+Priority: `npm-shrinkwrap.json` > `package-lock.json`
+
+### Yarn lockfiles
+
+- **Yarn Berry (v2+)** - SYML format with descriptor-based keys
+
+When a `yarn.lock` is present (and no npm lockfile), php-npm will use it for dependency resolution while preserving the original format.
+
+Lockfiles are internally normalized to npm v3 format for processing.
 
 ## Differences from npm
 
